@@ -44,6 +44,14 @@
 ### インストール
 
 ```bash
+git clone https://github.com/zapabob/KANTransformarimplementation.git
+cd KANTransformarimplementation
+pip install -e .
+```
+
+または依存関係のみをインストールする場合：
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -86,20 +94,20 @@ python examples/async_model_demo.py --layers 4 --dim 64 --time_steps 100
 4. 感情状態を含む内部状態のモデリング
 5. マルチモーダル入力への対応
 
-## 引用
-
-このプロジェクトを学術論文で引用する場合は、以下の形式をご利用ください：
-
-```
-@misc{ExtendedBiomimeticKAN2023,
-  author = {チーム名},
-  title = {拡張バイオミメティックKAN: 神経科学的着想による非同期神経調節ネットワーク},
-  year = {2023},
-  publisher = {GitHub},
-  url = {https://github.com/username/repo}
-}
-```
-
 ## ライセンス
 
-このプロジェクトはMITライセンスの下で公開されています。詳細はLICENSEファイルを参照してください。 
+MIT License
+
+## 引用
+
+このプロジェクトを研究で使用する場合は、以下の形式で引用してください：
+
+```bibtex
+@software{KANTransformarimplementation2025,
+  author = {Ryo Minegishi},
+  title = {KAN Transformer: Neural-Modulated Ternary Activation Network},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/zapabob/KANTransformarimplementation}
+}
+```
