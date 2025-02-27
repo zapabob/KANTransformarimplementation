@@ -1,6 +1,6 @@
 # KAN Transformer
 
-神経調節機能付き三値活性化ネットワーク（KAN: Kinetic Activation Network）の PyTorch Composer 実装
+神経調節機能付き三値活性化ネットワーク（KAN: Kinetic Activation Network）のAIフレームワーク実装
 
 ## 概要
 
@@ -16,7 +16,7 @@
 ## インストール
 
 ```bash
-git clone https://github.com/yourusername/kan-transformer.git
+git clone https://github.com/zapabob/KANTransformarimplementation.git
 cd kan-transformer
 pip install -e .
 ```
@@ -86,11 +86,11 @@ MIT License
 このプロジェクトを研究で使用する場合は、以下の形式で引用してください：
 
 ```bibtex
-@software{kan_transformer2024,
-  author = {Your Name},
+@software{KANTransformarimplementation2025,
+  author = {Ryo Minegishi},
   title = {KAN Transformer: Neural-Modulated Ternary Activation Network},
-  year = {2024},
+  year = {2025},
   publisher = {GitHub},
-  url = {https://github.com/yourusername/kan-transformer}
+  url = {https://github.com/zapabob/KANTransformarimplementation}
 }
 ``` 
