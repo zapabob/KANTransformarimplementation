@@ -5,21 +5,23 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "mosaicml-composer>=0.16.0",
         "torch>=2.0.0",
-        "torchvision>=0.15.0",
-        "captum>=0.6.0",
-        "optuna>=3.3.0",
-        "wandb>=0.15.0",
-        "plotly>=5.15.0",
-        "dash>=2.11.0",
+        "tqdm>=4.65.0",
         "numpy>=1.24.0",
-        "pandas>=2.0.0",
+        "matplotlib>=3.7.0",  # 可視化用
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "black>=22.0.0",
+            "isort>=5.0.0",
+            "flake8>=4.0.0",
+        ],
+    },
     author="Your Name",
     author_email="your.email@example.com",
-    description="神経調節機能付き三値活性化ネットワーク（KANモデル）",
-    long_description=open("README.md").read(),
+    description="KAN (Kernel Attention Network) Transformer implementation",
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/kan-transformer",
     classifiers=[
@@ -27,7 +29,8 @@ setup(
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.8",
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
     python_requires=">=3.8",
 ) 
