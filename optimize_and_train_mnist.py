@@ -161,8 +161,13 @@ def main():
         )
         
         # エポック数を50に上書き
-        print("\nエポック数を50に設定します")
-        best_params['epochs'] = 50
+        print("\nエポック数を10に設定します（長すぎる学習を防ぐため）")
+        best_params['epochs'] = 10
+        
+        # 早期停止のパラメータを設定（より積極的な早期停止）
+        if 'early_stopping_patience' not in best_params or best_params['early_stopping_patience'] > 3:
+            best_params['early_stopping_patience'] = 3
+            print("早期停止の閾値を3に設定しました")
         
         # 最適パラメータの保存（エポック数を更新した状態で）
         best_params_path = f'best_params_{args.task_type}_mnist.json'
