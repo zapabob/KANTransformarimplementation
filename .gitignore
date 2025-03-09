@@ -45,4 +45,41 @@ logs/
 
 # OS specific
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Experimental results and temporary files
+results/
+logs/
+temp/
+output/
+*.log
+visualizations/
+
+# Model files
+*.pth
+*.pt
+*.h5
+*.ckpt
+models/
+
+# Data sets
+data/
+datasets/
+raw_data/
+
+# Specific extensions
+*.npy
+*.npz
+*.pkl
+
+# Dependency temporary files
+Pipfile.lock
+
+# Test related
+.coverage
+htmlcov/
+.pytest_cache/
+
+# BioKAN specific temporary files
+*_counterfactuals.json
+*_simulation.json 
