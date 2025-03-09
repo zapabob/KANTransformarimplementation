@@ -808,7 +808,7 @@ def visualize_results(targets, predictions, task_type='classification'):
         mse = mean_squared_error(targets, predictions)
         r2 = r2_score(targets, predictions)
         plt.figtext(0.15, 0.8, f'MSE: {mse:.4f}\nR²: {r2:.4f}', 
-                   fontsize=12, bbox={'facecolor': 'white', 'alpha': 0.8, 'pad': 5})
+        fontsize=12, bbox={'facecolor': 'white', 'alpha': 0.8, 'pad': 5})
     
     plt.tight_layout()
     plt.savefig(f'transfer_learning_results_{task_type}.png')
