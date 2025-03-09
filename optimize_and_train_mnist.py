@@ -159,6 +159,16 @@ def main():
             n_trials=args.n_trials,
             save_best_params=True
         )
+        
+        # エポック数を50に上書き
+        print("\nエポック数を50に設定します")
+        best_params['epochs'] = 50
+        
+        # 最適パラメータの保存（エポック数を更新した状態で）
+        best_params_path = f'best_params_{args.task_type}_mnist.json'
+        with open(best_params_path, 'w') as f:
+            json.dump(best_params, f, indent=4)
+        print(f"更新した最適パラメータを保存しました: {best_params_path}")
     
     # 最適化のみの場合はここで終了
     if args.optimize_only:
