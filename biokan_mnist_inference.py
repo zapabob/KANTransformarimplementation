@@ -13,6 +13,10 @@ import numpy as np
 import os
 import time
 import shutil
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
+
+# 日本語フォントの設定（初回のみ詳細表示）
+setup_japanese_fonts(verbose=True)
 
 # 必要なディレクトリを作成
 os.makedirs('data', exist_ok=True)
@@ -105,17 +109,56 @@ model.eval()  # 評価モード
 
 # サンプルの選択と推論
 def run_inference(num_samples=10):
+    """
+    BioKANモデルを使用してMNISTデータセットの推論を実行
+    
+    Args:
+        num_samples: テストセットから選択するサンプル数
+        
+    Returns:
+        結果の辞書（予測ラベル、信頼度など）
+    """
+    # 推論時間の計測開始
+    start_time = time.time()
+    
+    # デバイスの設定（GPU/CPU）
+    try:
+        device = get_device()
+        print_cuda_info(verbose=True)
+    except Exception as e:
+        print(f"デバイス初期化エラー: {e}")
+        device = torch.device('cpu')
+    
+    # MNISTデータセットのロード
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    
+    # テストデータセットの準備
+    test_dataset = datasets.MNIST('data', train=False, download=True, transform=transform)
+    
     # 指定されたサンプル数だけテストセットからランダムに選択
     all_indices = list(range(len(test_dataset)))
-    np.random.shuffle(all_indices)
-    selected_indices = all_indices[:num_samples]
+    selected_indices = np.random.choice(all_indices, num_samples, replace=False)
     
+    # モデルのロード
+    model = BioKANModel().to(device)
+    print(f"BioKANモデルでMNISTデータセット{num_samples}サンプルの推論を実行中...")
+    
+    # 結果の格納用リスト
     results = []
     
-    for idx in selected_indices:
-        # サンプルを取得
-        x, true_label = test_dataset[idx]
+    # 正解数のカウント
+    correct_count = 0
+    total_inference_time = 0
+    
+    # 選択したサンプルで推論を実行
+    for i, idx in enumerate(selected_indices):
+        # サンプルの取得
+        x, y = test_dataset[idx]
         x = x.to(device)
+        true_label = y
         
         # 推論
         with torch.no_grad():
@@ -138,17 +181,103 @@ def run_inference(num_samples=10):
         # 結果を保存
         result = {
             'index': idx,
+            'input': x.cpu().numpy(),
             'true_label': true_label,
             'pred_label': pred_label,
-            'correct': (true_label == pred_label),
+            'correct': pred_label == true_label,
             'confidence': pred_prob,
             'probabilities': probabilities[0].cpu().numpy(),
             'inference_time': inference_time,
-            'input': x.cpu().numpy(),
             'neurotransmitter_levels': nt_levels
         }
         
         results.append(result)
+        
+        # 正解数をカウント
+        if pred_label == true_label:
+            correct_count += 1
+            
+        total_inference_time += inference_time
+        
+    # 平均推論時間を計算
+    avg_time = total_inference_time / num_samples
+    
+    # 結果の要約表示
+    print(f"\n総サンプル数: {num_samples}")
+    print(f"正解数: {correct_count}")
+    print(f"精度: {correct_count/num_samples:.4f}")
+    print(f"平均推論時間: {avg_time*1000:.2f} ms/サンプル")
+    print(f"使用デバイス: {device.type}")
+    
+    # 結果の表示・保存
+    fig = plt.figure(figsize=(15, 10))
+    
+    for i, result in enumerate(results):
+        plt.subplot(2, 5, i+1)
+        img = result['input'].squeeze()
+        plt.imshow(img, cmap='gray')
+        
+        title = f"Pred/予測: {result['pred_label']}\nTrue/正解: {result['true_label']}"
+        if result['correct']:
+            plt.title(title, color='green')
+        else:
+            plt.title(title, color='red')
+        
+        plt.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig("biokan_results/inference_results.png")
+    
+    # 予測確率分布のプロット
+    plt.figure(figsize=(15, 10))
+    
+    for i, result in enumerate(results):
+        plt.subplot(2, 5, i+1)
+        probs = result['probabilities']
+        plt.bar(range(10), probs)
+        plt.xlabel('Digit/数字')
+        plt.ylabel('Probability/確率')
+        plt.title(f"Sample/サンプル {i+1}")
+        plt.xticks(range(10))
+    
+    plt.tight_layout()
+    plt.savefig("biokan_results/prediction_probabilities.png")
+    
+    # 神経伝達物質レベルの可視化
+    plt.figure(figsize=(10, 6))
+    
+    nt_levels = results[0]['neurotransmitter_levels']  # すべてのサンプルで同じ
+    labels = list(nt_levels.keys())
+    values = list(nt_levels.values())
+    
+    plt.bar(labels, values)
+    plt.title("Neurotransmitter Levels / 神経伝達物質レベル")
+    plt.ylabel("Level / レベル")
+    plt.tight_layout()
+    plt.savefig("biokan_results/neurotransmitters.png")
+    
+    # GPUメモリ使用状況の表示（GPUが利用可能な場合のみ）
+    if device.type == 'cuda':
+        try:
+            print("\nGPUメモリ使用量:")
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            print(f"割り当て済み: {allocated:.2f} MB")
+            print(f"キャッシュ: {reserved:.2f} MB")
+            
+            # メモリのクリーンアップ
+            torch.cuda.empty_cache()
+            
+            print("メモリクリーンアップ後:")
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            print(f"割り当て済み: {allocated:.2f} MB")
+            print(f"キャッシュ: {reserved:.2f} MB")
+        except Exception as e:
+            print(f"GPUメモリ情報取得エラー: {e}")
+    
+    print("\n推論結果を biokan_results ディレクトリに保存しました。")
+    print("BioKANモデルによる推論完了!")
     
     return results
 
@@ -178,7 +307,7 @@ def save_and_display_results(results):
         img = result['input'].squeeze()
         plt.imshow(img, cmap='gray')
         
-        title = f"予測: {result['pred_label']}\n正解: {result['true_label']}"
+        title = f"Pred/予測: {result['pred_label']}\nTrue/正解: {result['true_label']}"
         if result['correct']:
             plt.title(title, color='green')
         else:
@@ -196,9 +325,9 @@ def save_and_display_results(results):
         plt.subplot(2, 5, i+1)
         probs = result['probabilities']
         plt.bar(range(10), probs)
-        plt.xlabel('数字')
-        plt.ylabel('確率')
-        plt.title(f"サンプル {i+1}")
+        plt.xlabel('Digit/数字')
+        plt.ylabel('Probability/確率')
+        plt.title(f"Sample/サンプル {i+1}")
         plt.xticks(range(10))
     
     plt.tight_layout()
@@ -208,13 +337,12 @@ def save_and_display_results(results):
     plt.figure(figsize=(10, 6))
     
     nt_levels = results[0]['neurotransmitter_levels']  # すべてのサンプルで同じ
-    names = list(nt_levels.keys())
+    labels = list(nt_levels.keys())
     values = list(nt_levels.values())
     
-    plt.bar(names, values)
-    plt.ylabel('神経伝達物質レベル')
-    plt.title('BioKANモデルの神経伝達物質レベル')
-    
+    plt.bar(labels, values)
+    plt.title("Neurotransmitter Levels / 神経伝達物質レベル")
+    plt.ylabel("Level / レベル")
     plt.tight_layout()
     plt.savefig("biokan_results/neurotransmitters.png")
 

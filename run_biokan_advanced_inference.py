@@ -4,6 +4,7 @@ BioKANモデルの高度な推論とOptunaによるハイパーパラメータ�
 """
 
 import sys
+import os
 
 # Pythonバージョンチェック
 if sys.version_info < (3, 11):
@@ -13,12 +14,12 @@ if sys.version_info < (3, 11):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-import os
 import json
 import argparse
 import optuna
@@ -39,57 +40,13 @@ from biokan_transfer_learning import (
     visualize_results,
     run_inference
 )
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
 
-# グローバル変数でCUDA情報の表示を制御
-CUDA_INFO_DISPLAYED = False
+# 日本語フォントの設定
+setup_japanese_fonts()
 
-# ===============================================
-# CUDA情報の表示
-# ===============================================
-def print_cuda_info(verbose=True):
-    """CUDAの情報を表示（既に表示されていない場合のみ）"""
-    global CUDA_INFO_DISPLAYED
-    
-    if CUDA_INFO_DISPLAYED:
-        # すでに表示済みならスキップ
-        return
-        
-    if not verbose:
-        # 静かモード
-        if torch.cuda.is_available():
-            CUDA_INFO_DISPLAYED = True
-            print(f"GPU使用中: {torch.cuda.get_device_name(0)}")
-        return
-        
-    # デバイスの設定
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用デバイス: {device}")
-    
-    if not torch.cuda.is_available():
-        print("警告: GPUが検出されませんでした。CPUで実行されます（処理速度が大幅に低下します）")
-        return
-        
-    # ここまで来ると表示済みになる
-    CUDA_INFO_DISPLAYED = True
-    
-    cuda_version = torch.version.cuda
-    print(f"CUDA バージョン: {cuda_version}")
-    
-    # CUDA 12の互換性チェック
-    if cuda_version.startswith('12.'):
-        print("CUDA 12が検出されました。最適化された訓練を行います。")
-        # CUDA 12特有の最適化設定
-        torch.backends.cuda.matmul.allow_tf32 = True  # TensorFloat-32の使用を許可
-        torch.backends.cudnn.allow_tf32 = True  # cuDNNでのTF32を許可
-        
-        # GPU情報のより詳細な表示
-        current_device = torch.cuda.current_device()
-        print(f"現在使用中のGPU: {torch.cuda.get_device_name(current_device)}")
-        print(f"GPU メモリ合計: {torch.cuda.get_device_properties(current_device).total_memory / 1024**3:.2f} GB")
-        print(f"GPU メモリ使用量: {torch.cuda.memory_allocated(current_device) / 1024**3:.2f} GB")
-        print(f"GPU キャッシュ: {torch.cuda.memory_reserved(current_device) / 1024**3:.2f} GB")
-    else:
-        print(f"注意: CUDA {cuda_version}が検出されました。CUDA 12向けの最適化は利用できません。")
+# デバイスの設定
+device = get_device()
 
 # デバイス情報の初期表示
 print_cuda_info()
@@ -392,7 +349,7 @@ def optimize_hyperparameters(pretrained_model, task_type, train_loader, val_load
         最適なハイパーパラメータ辞書
     """
     # デバイスの設定
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = get_device()
     
     # CUDA情報を静かモードで表示（冗長な出力を避けるため）
     print_cuda_info(verbose=False)
@@ -621,45 +578,40 @@ def main():
     # 出力ディレクトリの作成
     os.makedirs(args.save_dir, exist_ok=True)
     
-    # 事前学習済みモデルのロード
-    try:
-        print(f"事前学習済みモデルをロード中: {args.pretrained_model}")
-        # 基本モデルの初期化
-        base_model = EnhancedBioKANModel()
-        # 重みのロード
-        base_model.load_state_dict(torch.load(args.pretrained_model, map_location=device))
-        base_model = base_model.to(device)
-        base_model.eval()  # 評価モードに設定
-        print("モデルのロードが完了しました")
-    except Exception as e:
-        print(f"モデルのロードに失敗しました: {e}")
-        return
-    
-    # データセットの取得
+    # タスク情報の表示
     print(f"\n{args.task_type}タスク用のデータセットを準備中...")
-    train_loader, val_loader, test_loader = get_advanced_dataset(
-        task_type=args.task_type,
-        batch_size=args.batch_size
-    )
-    print("データセットの準備が完了しました")
     
-    # ハイパーパラメータ最適化またはデフォルト値でのモデル訓練
+    # データセットの設定
+    train_loader, val_loader, test_loader = get_advanced_dataset(args.task_type, args.batch_size)
+    
+    # 事前学習済みモデルの読み込み
+    pretrained_model = EnhancedBioKANModel().to(device)
+    
+    # 事前学習済み重みの読み込み
+    model_weights = torch.load(args.pretrained_model, map_location=device)
+    pretrained_model.load_state_dict(model_weights)
+    
+    # Optunaによるハイパーパラメータ最適化（引数で指定）
     if args.optimize:
-        print("\nOptunaによるハイパーパラメータ最適化を実行中...")
+        print(f"\nOptunaによるハイパーパラメータ最適化を開始します（{args.n_trials}回試行）...")
         best_params, best_model, study = optimize_hyperparameters(
-            pretrained_model=base_model,
+            pretrained_model=pretrained_model,
             task_type=args.task_type,
             train_loader=train_loader,
             val_loader=val_loader,
             n_trials=args.n_trials
         )
         
-        print("\n最適なハイパーパラメータ:")
-        for param_name, param_value in best_params.items():
-            print(f"  {param_name}: {param_value}")
+        # 最適化結果を保存
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(args.save_dir, f"best_params_{args.task_type}_{timestamp}.json")
+        with open(save_path, 'w') as f:
+            json.dump(best_params, f, indent=4)
         
-        # 最適化されたモデルをさらに訓練
-        print("\n最適化されたモデルで本訓練を実行中...")
+        print(f"\n最適なハイパーパラメータを保存しました: {save_path}")
+        
+        # 最適なパラメータで転移学習モデルをトレーニング
+        print("\n最適なハイパーパラメータでモデルを訓練中...")
         history, optimized_model = fine_tune_model(
             model=best_model,
             train_loader=train_loader,
@@ -692,7 +644,7 @@ def main():
         num_classes = 10 if args.task_type == 'classification' else 2 if args.task_type == 'segmentation' else 1
         
         transfer_model = TransferBioKANModel(
-            pretrained_model=base_model,
+            pretrained_model=pretrained_model,
             task_type=args.task_type,
             num_classes=num_classes,
             output_dim=1 if args.task_type == 'regression' else 3 if args.task_type == 'multivariate_regression' else 1,

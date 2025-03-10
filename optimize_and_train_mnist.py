@@ -24,46 +24,17 @@ from biokan_transfer_learning import (
     evaluate_model,
     visualize_results
 )
+# CUDA情報管理モジュールをインポート
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
 
-# CUDA情報表示を制御するフラグ
-# 注意: このスクリプトがモジュールとしてインポートされた場合でも使える
-CUDA_INFO_DISPLAYED = False
+# 日本語フォントの設定
+setup_japanese_fonts()
 
-# デバイスの設定
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用デバイス: {device}")
+# デバイスを共通モジュールから取得
+device = get_device()
 
-# CUDA情報の表示（まだ表示されていない場合のみ）
-if torch.cuda.is_available() and not CUDA_INFO_DISPLAYED:
-    CUDA_INFO_DISPLAYED = True  # 表示フラグを設定
-    cuda_version = torch.version.cuda
-    print(f"CUDA バージョン: {cuda_version}")
-    
-    # CUDA 12の互換性チェック
-    if cuda_version.startswith('12.'):
-        print("CUDA 12が検出されました。最適化された機能を使用します。")
-        # CUDA 12特有の最適化設定
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        
-        # 詳細なGPU情報
-        current_device = torch.cuda.current_device()
-        print(f"現在使用中のGPU: {torch.cuda.get_device_name(current_device)}")
-        print(f"GPU メモリ合計: {torch.cuda.get_device_properties(current_device).total_memory / 1024**3:.2f} GB")
-        print(f"GPU メモリ使用量: {torch.cuda.memory_allocated(current_device) / 1024**3:.2f} GB")
-        print(f"GPU キャッシュ: {torch.cuda.memory_reserved(current_device) / 1024**3:.2f} GB")
-    else:
-        print(f"注意: CUDA {cuda_version}が検出されました。CUDA 12向けの最適化は利用できません。")
-    
-    # GPU情報
-    device_count = torch.cuda.device_count()
-    print(f"利用可能なGPUデバイス数: {device_count}")
-    
-    for i in range(device_count):
-        device_name = torch.cuda.get_device_name(i)
-        print(f"GPU {i}: {device_name}")
-else:
-    print("警告: GPUが検出されませんでした。CPUで実行されます（処理速度が大幅に低下します）")
+# 統合されたCUDA情報表示関数を使用する
+print_cuda_info(verbose=True)
 
 def main():
     # コマンドライン引数の設定

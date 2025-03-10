@@ -14,11 +14,18 @@ import time
 import os
 import json
 from typing import Dict, List, Tuple, Optional, Any
-from torch.cuda.amp import autocast, GradScaler  # 混合精度トレーニング用
+from torch.amp import autocast, GradScaler
 import argparse  # コマンドライン引数の解析用
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm  # 進捗バー表示用
+import optuna
+
+# 共通CUDA情報管理モジュール
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
+
+# 日本語フォントの設定（詳細表示しない）
+setup_japanese_fonts(verbose=False)
 
 # 必要なディレクトリを作成
 os.makedirs('data', exist_ok=True)
@@ -26,35 +33,7 @@ os.makedirs('biokan_trained_models', exist_ok=True)
 os.makedirs('biokan_results', exist_ok=True)
 
 # デバイスの設定
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用デバイス: {device}")
-
-# CUDA情報の表示
-if torch.cuda.is_available():
-    cuda_version = torch.version.cuda
-    print(f"CUDA バージョン: {cuda_version}")
-    
-    # CUDA 12の互換性チェック
-    if cuda_version.startswith('12.'):
-        print("CUDA 12が検出されました。最適化された訓練を行います。")
-        # CUDA 12特有の最適化設定
-        torch.backends.cuda.matmul.allow_tf32 = True  # TensorFloat-32の使用を許可
-        torch.backends.cudnn.allow_tf32 = True  # cuDNNでのTF32を許可
-    else:
-        print(f"注意: CUDA {cuda_version}が検出されました。CUDA 12での最適化が利用できません。")
-    
-    # GPU情報
-    device_count = torch.cuda.device_count()
-    print(f"利用可能なGPUデバイス数: {device_count}")
-    
-    for i in range(device_count):
-        device_name = torch.cuda.get_device_name(i)
-        device_capability = torch.cuda.get_device_capability(i)
-        print(f"GPU {i}: {device_name} (Compute Capability: {device_capability[0]}.{device_capability[1]})")
-        
-        # メモリ情報
-        total_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
-        print(f"  合計メモリ: {total_memory:.2f} GB")
+device = get_device()
 
 # ===============================================
 # 生物学的注意機構 (Biological Attention Mechanism)
@@ -328,24 +307,21 @@ class DynamicNeuromodulatorSystem:
     
     def visualize_history(self, save_path=None):
         """神経伝達物質レベルの履歴を可視化"""
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(10, 6))
         
-        # 各神経伝達物質の履歴をプロット
-        for nt, history in self.history.items():
-            if len(history) > 0:  # 履歴があれば
-                plt.plot(history, label=nt)
-        
-        plt.xlabel('ステップ')
-        plt.ylabel('レベル')
-        plt.title('神経伝達物質レベルの推移')
+        for name, values in self.history.items():
+            plt.plot(values, label=name)
+            
+        plt.title("Neurotransmitter Levels Over Time / 神経伝達物質レベルの推移")
+        plt.xlabel("Time Step / ステップ")
+        plt.ylabel("Level / レベル")
         plt.legend()
-        plt.grid(True, alpha=0.3)
+        plt.grid(True)
         
         if save_path:
             plt.savefig(save_path)
-            plt.close()
-        else:
-            plt.show()
+        plt.tight_layout()
+        plt.show()
 
 # ===============================================
 # BioKANモデル (生物学的コルモゴロフ-アーノルドネットワーク)

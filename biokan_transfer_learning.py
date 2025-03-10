@@ -3,6 +3,7 @@ BioKANモデルを使用した転移学習と推論問題のためのスクリ�
 事前学習済みモデルをファインチューニングして、様々な推論タスクに適用します
 """
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,7 +13,6 @@ from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-import os
 import json
 import argparse
 from torch.amp import autocast, GradScaler
@@ -24,41 +24,13 @@ import optuna
 
 # biokan_training.pyからモデルをインポート
 from biokan_training import EnhancedBioKANModel, DynamicNeuromodulatorSystem, BiologicalAttention
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
 
-# デバイスの設定
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用デバイス: {device}")
+# 日本語フォントの設定（詳細表示しない）
+setup_japanese_fonts(verbose=False)
 
-# CUDA情報の表示（接続時）
-if torch.cuda.is_available():
-    cuda_version = torch.version.cuda
-    print(f"CUDA バージョン: {cuda_version}")
-    
-    # CUDA 12の互換性チェック
-    if cuda_version.startswith('12.'):
-        print("CUDA 12が検出されました。最適化された機能を使用します。")
-        # CUDA 12特有の最適化設定
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        
-        # 詳細なGPU情報
-        current_device = torch.cuda.current_device()
-        print(f"現在使用中のGPU: {torch.cuda.get_device_name(current_device)}")
-        print(f"GPU メモリ合計: {torch.cuda.get_device_properties(current_device).total_memory / 1024**3:.2f} GB")
-        print(f"GPU メモリ使用量: {torch.cuda.memory_allocated(current_device) / 1024**3:.2f} GB")
-        print(f"GPU キャッシュ: {torch.cuda.memory_reserved(current_device) / 1024**3:.2f} GB")
-    else:
-        print(f"注意: CUDA {cuda_version}が検出されました。CUDA 12向けの最適化は利用できません。")
-    
-    # GPU情報
-    device_count = torch.cuda.device_count()
-    print(f"利用可能なGPUデバイス数: {device_count}")
-    
-    for i in range(device_count):
-        device_name = torch.cuda.get_device_name(i)
-        print(f"GPU {i}: {device_name}")
-else:
-    print("警告: GPUが検出されませんでした。CPUで実行されます（処理速度が大幅に低下します）")
+# グローバルでdeviceを定義（他の関数から参照するため）
+device = get_device()
 
 # ===============================================
 # 転移学習用のモデル拡張
@@ -886,16 +858,19 @@ def run_inference(model, data_sample, task_type='classification', threshold=0.5)
 # メイン関数
 # ===============================================
 def main():
-    # コマンドライン引数のパース
-    parser = argparse.ArgumentParser(description='BioKANモデルを使用した転移学習と推論')
-    parser.add_argument('--pretrained_model', type=str, required=True,
-                        help='事前学習済みモデルのパス')
-    parser.add_argument('--dataset', type=str, default='fashion_mnist',
-                        choices=['mnist', 'cifar10', 'fashion_mnist'],
+    """
+    メイン関数：コマンドライン引数を解析し、転移学習とモデル評価を実行
+    """
+    parser = argparse.ArgumentParser(description='BioKANのMNIST転移学習')
+    
+    # 基本パラメータ
+    parser.add_argument('--dataset', type=str, default='mnist',
                         help='使用するデータセット')
     parser.add_argument('--task_type', type=str, default='classification',
-                        choices=['classification', 'regression'],
-                        help='タスクの種類')
+                        choices=['classification', 'regression', 'multivariate_regression', 'sequence', 'segmentation', 'anomaly_detection'],
+                        help='転移学習のタスク種類')
+    parser.add_argument('--pretrained_model', type=str, default='biokan_trained_models/best_biokan_model.pth',
+                        help='事前学習済みモデルのパス')
     parser.add_argument('--batch_size', type=int, default=64,
                         help='バッチサイズ')
     parser.add_argument('--epochs', type=int, default=5,
@@ -916,22 +891,13 @@ def main():
     
     # GPUの確認
     if args.use_gpu:
-        if torch.cuda.is_available():
-            device = torch.device('cuda')
-            print(f"GPUを使用: {torch.cuda.get_device_name(0)}")
-            print(f"GPU情報: 合計メモリ {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
-            
-            # GPUキャッシュのクリア
-            torch.cuda.empty_cache()
-            
-            # CUDNNベンチマークモードを有効化
-            torch.backends.cudnn.benchmark = True
-        else:
-            device = torch.device('cpu')
-            print("警告: GPUが利用できないため、CPUを使用します")
+        device = get_device()
+        print_cuda_info(verbose=True)
     else:
         device = torch.device('cpu')
-        print("CPUを使用")
+        print("CPUモードで実行します")
+    
+    print(f"\n{args.task_type}タスクの転移学習を開始します...")
     
     # 推論のみモードの場合
     if args.inference_only and args.inference_model:

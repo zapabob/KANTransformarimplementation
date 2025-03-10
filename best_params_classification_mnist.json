@@ -1,9 +1,9 @@
 {
-    "learning_rate": 0.0014015504350657411,
-    "dropout": 0.4844477379586345,
-    "freeze_layers": true,
-    "weight_decay": 1.950165804883584e-05,
-    "batch_size": 32,
+    "learning_rate": 4.609359292277751e-05,
+    "dropout": 0.4614757093666757,
+    "freeze_layers": false,
+    "weight_decay": 0.0009640131066524672,
+    "batch_size": 16,
     "epochs": 10,
     "early_stopping_patience": 3
 }
