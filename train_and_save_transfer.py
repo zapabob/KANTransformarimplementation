@@ -1,261 +1,230 @@
 """
-BioKANモデルの転移学習と保存のためのスクリプト
-Fashion-MNISTデータセットで転移学習を行い、結果を保存します
+Fashion MNISTデータセットを用いたBioKANモデルの転移学習
 """
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
-import numpy as np
-import argparse
 import os
-import sys
-import time
+import json
+from tqdm import tqdm
 
-# CUDA情報の表示
-if torch.cuda.is_available():
-    print(f"CUDA利用可能: {torch.cuda.get_device_name(0)}")
-    print(f"CUDA バージョン: {torch.version.cuda}")
-    print(f"PyTorch バージョン: {torch.__version__}")
-else:
-    print("CUDA利用不可: CPUで実行します")
+from cuda_info_manager import print_cuda_info, get_device, setup_japanese_fonts
+from biokan_transfer_learning import TransferBioKANModel
+from biokan_training import EnhancedBioKANModel
 
-try:
-    # biokan_training.pyからモデルをインポート
-    from biokan_training import EnhancedBioKANModel
-    from biokan_transfer_learning import TransferBioKANModel, get_dataset, fine_tune_model
-except ImportError as e:
-    print(f"モジュールのインポートエラー: {e}")
-    sys.exit(1)
+# 日本語フォントの設定
+setup_japanese_fonts(verbose=False)
 
-def main():
-    # コマンドライン引数のパース
-    parser = argparse.ArgumentParser(description='BioKANモデルの転移学習と保存')
-    parser.add_argument('--pretrained_model', type=str, default='biokan_trained_models/best_biokan_model.pth',
-                        help='事前学習済みモデルのパス')
-    parser.add_argument('--dataset', type=str, default='fashion_mnist',
-                        choices=['mnist', 'cifar10', 'fashion_mnist'],
-                        help='使用するデータセット')
-    parser.add_argument('--task_type', type=str, default='classification',
-                        choices=['classification', 'regression'],
-                        help='タスクの種類')
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help='バッチサイズ')
-    parser.add_argument('--epochs', type=int, default=5,
-                        help='エポック数')
-    parser.add_argument('--lr', type=float, default=0.0001,
-                        help='学習率')
-    parser.add_argument('--freeze', action='store_true',
-                        help='事前学習済み層を凍結するかどうか')
-    parser.add_argument('--use_cuda', action='store_true',
-                        help='利用可能な場合、CUDAを使用する')
-    parser.add_argument('--output_dir', type=str, default='transfer_models',
-                        help='モデル保存ディレクトリ')
-    args = parser.parse_args()
+# デバイスの設定
+device = get_device()
+print_cuda_info(verbose=True)
+
+def train_fashion_mnist():
+    """Fashion MNISTデータセットを用いた転移学習を実行"""
     
-    # デバイスの設定
-    if args.use_cuda and torch.cuda.is_available():
-        device = torch.device('cuda')
-        print(f"CUDAを使用: {torch.cuda.get_device_name(0)}")
-        # CUDNNベンチマークモードを有効化
-        torch.backends.cudnn.benchmark = True
-    else:
-        device = torch.device('cpu')
-        print("CPUを使用")
+    # データセットの準備
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,))
+    ])
     
-    # 保存ディレクトリの作成
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Fashion MNISTデータセットのロード
+    train_dataset = datasets.FashionMNIST(
+        root='data',
+        train=True,
+        download=True,
+        transform=transform
+    )
+    
+    test_dataset = datasets.FashionMNIST(
+        root='data',
+        train=False,
+        download=True,
+        transform=transform
+    )
+    
+    # データローダーの設定
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=64,
+        shuffle=True,
+        num_workers=4 if device.type == 'cuda' else 0,
+        pin_memory=True if device.type == 'cuda' else False
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=128,
+        shuffle=False,
+        num_workers=4 if device.type == 'cuda' else 0,
+        pin_memory=True if device.type == 'cuda' else False
+    )
+    
+    # クラス名の定義
+    class_names = ['Tシャツ/トップ', 'ズボン', 'プルオーバー', 'ドレス', 'コート',
+                  'サンダル', 'シャツ', 'スニーカー', 'バッグ', 'アンクルブーツ']
+    
+    # 事前学習済みモデルのパス
+    pretrained_path = 'optimized_mnist_classification_model.pth'
     
     # 事前学習済みモデルの読み込み
-    print(f"事前学習済みモデルを読み込み中: {args.pretrained_model}")
+    state_dict = torch.load(pretrained_path, map_location=device)
     
-    # モデルファイルの存在確認
-    if not os.path.exists(args.pretrained_model):
-        print(f"エラー: 事前学習済みモデルファイル '{args.pretrained_model}' が見つかりません")
-        return
+    # state_dictのキーから'pretrained_model.'を削除
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith('pretrained_model.'):
+            new_key = key.replace('pretrained_model.', '')
+            new_state_dict[new_key] = value
     
-    try:
-        # ベースモデルの読み込み
-        base_model = EnhancedBioKANModel()
-        base_model.load_state_dict(torch.load(args.pretrained_model, map_location='cpu'))
-        print(f"事前学習済みモデルを読み込みました")
+    # ベースモデルの作成と重みの読み込み
+    base_model = EnhancedBioKANModel()
+    base_model.load_state_dict(new_state_dict)
+    
+    # 転移学習モデルの作成
+    model = TransferBioKANModel(
+        pretrained_model=base_model,
+        task_type='classification',
+        num_classes=10,
+        freeze_layers=True
+    )
+    model = model.to(device)
+    
+    # 損失関数とオプティマイザーの設定
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=3, verbose=True
+    )
+    
+    # 訓練ループ
+    num_epochs = 10
+    best_accuracy = 0.0
+    history = {
+        'train_loss': [], 'train_acc': [],
+        'test_loss': [], 'test_acc': []
+    }
+    
+    for epoch in range(num_epochs):
+        # 訓練フェーズ
+        model.train()
+        train_loss = 0.0
+        train_correct = 0
+        train_total = 0
         
-        # 転移学習モデルの作成
-        print(f"転移学習モデルを作成中...")
-        # データセットごとのクラス数設定
-        num_classes = 10  # MNISTとFashion-MNISTは10クラス
-        if args.dataset == 'cifar10':
-            num_classes = 10  # CIFAR-10も10クラス
+        train_pbar = tqdm(train_loader, desc=f'エポック {epoch+1}/{num_epochs} [訓練]')
+        for inputs, targets in train_pbar:
+            inputs, targets = inputs.to(device), targets.to(device)
             
-        transfer_model = TransferBioKANModel(
-            pretrained_model=base_model,
-            task_type=args.task_type,
-            num_classes=num_classes,
-            output_dim=1,  # 回帰タスクの場合の出力次元
-            freeze_layers=args.freeze
-        )
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item() * inputs.size(0)
+            _, predicted = outputs.max(1)
+            train_total += targets.size(0)
+            train_correct += predicted.eq(targets).sum().item()
+            
+            train_pbar.set_postfix({
+                'loss': f'{loss.item():.4f}',
+                'acc': f'{train_correct/train_total:.4f}'
+            })
         
-        # モデルをデバイスに転送
-        transfer_model = transfer_model.to(device)
+        train_loss = train_loss / len(train_loader.dataset)
+        train_acc = train_correct / train_total
         
-        # 勾配計算を確実に有効化（フリーズしていてもoutput_layerの勾配は必要）
-        for param in transfer_model.parameters():
-            param.requires_grad_(True)
-        
-        # もし事前学習済み層を凍結する場合は、基本モデルのパラメータのみをフリーズ
-        if args.freeze:
-            for param in transfer_model.pretrained_model.parameters():
-                param.requires_grad_(False)
-        
-        # モデル情報の表示
-        total_params = sum(p.numel() for p in transfer_model.parameters())
-        trainable_params = sum(p.numel() for p in transfer_model.parameters() if p.requires_grad)
-        
-        print(f"転移学習モデル構成:")
-        print(f"  タスク種類: {args.task_type}")
-        print(f"  データセット: {args.dataset}")
-        print(f"  事前学習層凍結: {args.freeze}")
-        print(f"  合計パラメータ数: {total_params}")
-        print(f"  学習可能パラメータ数: {trainable_params}")
-        print(f"  デバイス: {device}")
-        
-        # データセットの取得
-        print(f"\nデータセット {args.dataset} を読み込み中...")
-        train_dataset, test_dataset = get_dataset(args.dataset)
-        
-        # データセットの分割（訓練・検証）
-        train_size = int(0.8 * len(train_dataset))
-        val_size = len(train_dataset) - train_size
-        
-        # ジェネレータのシード固定
-        generator = torch.Generator().manual_seed(42)
-        train_subset, val_subset = random_split(
-            train_dataset, [train_size, val_size], 
-            generator=generator
-        )
-        
-        # データローダーの作成
-        train_loader = DataLoader(
-            train_subset, 
-            batch_size=args.batch_size, 
-            shuffle=True,
-            pin_memory=device.type == 'cuda',
-            num_workers=4 if device.type == 'cuda' else 0
-        )
-        val_loader = DataLoader(
-            val_subset, 
-            batch_size=args.batch_size,
-            pin_memory=device.type == 'cuda',
-            num_workers=4 if device.type == 'cuda' else 0
-        )
-        
-        # 転移学習の実行
-        print(f"\n転移学習を開始します...")
-        start_time = time.time()
-        
-        history, trained_model = fine_tune_model(
-            model=transfer_model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            epochs=args.epochs,
-            lr=args.lr,
-            task_type=args.task_type
-        )
-        
-        training_time = time.time() - start_time
-        print(f"\n転移学習完了: {training_time:.2f}秒")
-        
-        # モデルの保存
-        model_name = f"transfer_model_{args.dataset}_{args.task_type}.pth"
-        model_path = os.path.join(args.output_dir, model_name)
-        torch.save(trained_model.state_dict(), model_path)
-        print(f"転移学習モデルを保存しました: {model_path}")
-        
-        # 学習曲線のプロット
-        plt.figure(figsize=(12, 5))
-        
-        plt.subplot(1, 2, 1)
-        plt.plot(history['train_loss'], label='訓練損失')
-        plt.plot(history['val_loss'], label='検証損失')
-        plt.xlabel('エポック')
-        plt.ylabel('損失')
-        plt.legend()
-        plt.title('学習曲線 - 損失')
-        
-        if args.task_type == 'classification':
-            plt.subplot(1, 2, 2)
-            plt.plot(history['train_acc'], label='訓練精度')
-            plt.plot(history['val_acc'], label='検証精度')
-            plt.xlabel('エポック')
-            plt.ylabel('精度')
-            plt.legend()
-            plt.title('学習曲線 - 精度')
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(args.output_dir, f'training_history_{args.dataset}.png'))
-        print(f"学習曲線を保存しました: {os.path.join(args.output_dir, f'training_history_{args.dataset}.png')}")
-        
-        # 転移学習モデルのテスト
-        test_loader = DataLoader(
-            test_dataset, 
-            batch_size=args.batch_size,
-            pin_memory=device.type == 'cuda',
-            num_workers=4 if device.type == 'cuda' else 0
-        )
-        
-        # テスト評価
-        print("\nテストデータでの評価...")
-        trained_model.eval()
+        # テストフェーズ
+        model.eval()
         test_loss = 0.0
-        
-        if args.task_type == 'classification':
-            test_correct = 0
-            test_total = 0
-            criterion = nn.CrossEntropyLoss()
-        else:
-            criterion = nn.MSELoss()
+        test_correct = 0
+        test_total = 0
         
         with torch.no_grad():
-            for inputs, targets in test_loader:
+            test_pbar = tqdm(test_loader, desc=f'エポック {epoch+1}/{num_epochs} [テスト]')
+            for inputs, targets in test_pbar:
                 inputs, targets = inputs.to(device), targets.to(device)
                 
-                # データの形状整形
-                if inputs.dim() > 2:
-                    inputs = inputs.view(inputs.size(0), -1)
-                
-                # 推論
-                outputs = trained_model(inputs)
+                outputs = model(inputs)
                 loss = criterion(outputs, targets)
                 
-                # 損失更新
                 test_loss += loss.item() * inputs.size(0)
+                _, predicted = outputs.max(1)
+                test_total += targets.size(0)
+                test_correct += predicted.eq(targets).sum().item()
                 
-                if args.task_type == 'classification':
-                    # 分類タスクの評価
-                    _, predicted = outputs.max(1)
-                    test_total += targets.size(0)
-                    test_correct += predicted.eq(targets).sum().item()
+                test_pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'acc': f'{test_correct/test_total:.4f}'
+                })
         
-        # テスト結果の表示
-        test_loss /= len(test_loader.dataset)
+        test_loss = test_loss / len(test_loader.dataset)
+        test_acc = test_correct / test_total
         
-        if args.task_type == 'classification':
-            test_acc = test_correct / test_total
-            print(f"テスト損失: {test_loss:.4f}")
-            print(f"テスト精度: {test_acc:.4f}")
-        else:
-            print(f"テスト損失 (MSE): {test_loss:.4f}")
+        # 学習率の調整
+        scheduler.step(test_loss)
         
-        print(f"\n転移学習が完了しました。モデルは {model_path} に保存されています。")
+        # 履歴の更新
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['test_loss'].append(test_loss)
+        history['test_acc'].append(test_acc)
         
-    except Exception as e:
-        print(f"エラーが発生しました: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f'\nエポック {epoch+1}/{num_epochs}:')
+        print(f'訓練損失: {train_loss:.4f}, 訓練精度: {train_acc:.4f}')
+        print(f'テスト損失: {test_loss:.4f}, テスト精度: {test_acc:.4f}')
+        
+        # 最良モデルの保存
+        if test_acc > best_accuracy:
+            best_accuracy = test_acc
+            torch.save(model.state_dict(), 'transfer_model_fashion_mnist_classification.pth')
+            print(f'最良モデルを保存しました（精度: {test_acc:.4f}）')
+    
+    # 学習曲線の描画
+    plt.figure(figsize=(12, 4))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(history['train_loss'], label='訓練')
+    plt.plot(history['test_loss'], label='テスト')
+    plt.title('損失の推移')
+    plt.xlabel('エポック')
+    plt.ylabel('損失')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(history['train_acc'], label='訓練')
+    plt.plot(history['test_acc'], label='テスト')
+    plt.title('精度の推移')
+    plt.xlabel('エポック')
+    plt.ylabel('精度')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('training_history_fashion_mnist.png')
+    plt.close()
+    
+    # 結果の保存
+    results = {
+        'best_accuracy': best_accuracy,
+        'final_train_loss': history['train_loss'][-1],
+        'final_train_acc': history['train_acc'][-1],
+        'final_test_loss': history['test_loss'][-1],
+        'final_test_acc': history['test_acc'][-1],
+        'class_names': class_names
+    }
+    
+    with open('fashion_mnist_transfer_results.json', 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
+    
+    print('\n転移学習が完了しました。')
+    print(f'最終テスト精度: {results["final_test_acc"]:.4f}')
+    print(f'最良テスト精度: {best_accuracy:.4f}')
 
 if __name__ == "__main__":
-    main() 
+    train_fashion_mnist() 

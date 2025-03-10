@@ -24,6 +24,14 @@ def setup_japanese_fonts(verbose=False):
     # フラグファイルがあれば表示済みとみなす
     if os.path.exists(FONT_FLAG_FILE_PATH):
         FONT_INFO_DISPLAYED = True
+        # フォント設定のみ行い、情報表示はスキップ
+        plt.rcParams['font.family'] = 'sans-serif'
+        if os.name == 'nt':
+            plt.rcParams['font.sans-serif'] = ['MS Gothic', 'Yu Gothic', 'Meiryo', 'BIZ UDGothic', 'BIZ UDMincho']
+        else:
+            plt.rcParams['font.sans-serif'] = ['Hiragino Sans GB', 'Hiragino Kaku Gothic Pro', 'Noto Sans CJK JP', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Takao']
+        plt.rcParams['axes.unicode_minus'] = False
+        return
     
     # フォント設定
     plt.rcParams['font.family'] = 'sans-serif'
