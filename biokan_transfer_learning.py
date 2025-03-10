@@ -190,46 +190,35 @@ class TransferBioKANModel(nn.Module):
     
     def forward(self, x, return_features=False):
         """
-        順伝播
+        順伝播の実行
         
         Args:
             x: 入力データ
-            return_features: 特徴量も返すかどうか
+            return_features: 特徴量を返すかどうか
             
         Returns:
-            タスクに応じた出力と、オプションで中間特徴量
+            予測結果または(予測結果, 特徴量)のタプル
         """
-        batch_size = x.shape[0]
+        # 入力形状の確認と修正
+        batch_size = x.size(0)
         
-        # BioKANモデルの特徴抽出部分を利用
-        if self.task_type == 'sequence':
-            # 系列データの場合、各時間ステップで特徴抽出
-            seq_len = x.shape[1]
-            features = []
-            
-            for t in range(seq_len):
-                x_t = x[:, t]
-                if return_features:
-                    out_t, activations = self.pretrained_model(x_t, return_activations=True)
-                    features.append(activations['block_2'])  # 最終ブロックの活性化を使用
-                else:
-                    out_t = self.pretrained_model(x_t)
-                    features.append(out_t)
-            
-            # 抽出した特徴を時系列として結合
-            sequence_features = torch.stack(features, dim=1)  # [batch, seq_len, hidden_dim]
-            
-            # LSTM層で時系列処理
-            lstm_out, _ = self.lstm(sequence_features)
-            
-            # 最終出力
-            output = self.output_layer(lstm_out[:, -1, :])  # 最終時間ステップの出力を使用
-            
-            if return_features:
-                return output, sequence_features
-            return output
+        # 入力形状のデバッグ情報
+        print(f"TransferBioKANModel 入力形状: {x.shape}, タイプ: {type(x)}")
         
-        elif self.task_type == 'segmentation':
+        # MNISTの場合、784次元に変換
+        if self.task_type in ['classification', 'regression', 'multivariate_regression']:
+            if x.dim() > 2:
+                # 例: [batch, 1, 28, 28] -> [batch, 784]
+                x = x.view(batch_size, -1)
+                print(f"  形状を変換: {x.shape}")
+            
+            # 入力サイズのチェック
+            expected_input_size = 784  # MNISTの場合は28x28=784
+            if x.size(1) != expected_input_size:
+                raise ValueError(f"入力サイズが不正です。期待: {expected_input_size}, 実際: {x.size(1)}")
+        
+        # タスク固有の処理
+        if self.task_type == 'segmentation':
             # 画像セグメンテーション処理
             # 入力画像から特徴を抽出
             with torch.set_grad_enabled(not self.freeze_pretrained):
@@ -240,14 +229,14 @@ class TransferBioKANModel(nn.Module):
             img_size = self.additional_params.get('img_size', 28)
             features_2d = self.feature_reshape(features)
             features_2d = features_2d.view(batch_size, -1, img_size // 4, img_size // 4)
-            
+        
             # デコーダーでセグメンテーションマスクを生成
             output = self.decoder(features_2d)  # [batch, num_classes, H, W]
             
             if return_features:
                 return output, features
             return output
-        
+            
         elif self.task_type == 'anomaly_detection':
             # 異常検知処理
             with torch.set_grad_enabled(not self.freeze_pretrained):
@@ -266,7 +255,7 @@ class TransferBioKANModel(nn.Module):
             if return_features:
                 return reconstruction_error, features
             return reconstruction_error
-        
+            
         else:
             # 通常の入力処理（分類、回帰、多変量回帰）
             # 勾配情報の適切な処理
