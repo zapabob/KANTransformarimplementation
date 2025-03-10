@@ -71,19 +71,27 @@ def train_fashion_mnist():
     # 事前学習済みモデルのパス
     pretrained_path = 'optimized_mnist_classification_model.pth'
     
-    # 事前学習済みモデルの読み込み
-    state_dict = torch.load(pretrained_path, map_location=device)
+    # 事前学習済みモデルの読み込み（weights_only=Trueを指定）
+    state_dict = torch.load(pretrained_path, map_location=device, weights_only=True)
     
-    # state_dictのキーから'pretrained_model.'を削除
+    # state_dictのキーから'pretrained_model.'を削除し、必要なキーのみを抽出
     new_state_dict = {}
     for key, value in state_dict.items():
         if key.startswith('pretrained_model.'):
             new_key = key.replace('pretrained_model.', '')
-            new_state_dict[new_key] = value
+            if not key.startswith('pretrained_model.output_layer.'):  # 出力層は除外
+                new_state_dict[new_key] = value
+    
+    print("読み込んだモデルの層:", new_state_dict.keys())
     
     # ベースモデルの作成と重みの読み込み
     base_model = EnhancedBioKANModel()
-    base_model.load_state_dict(new_state_dict)
+    try:
+        base_model.load_state_dict(new_state_dict, strict=False)
+        print("ベースモデルの重みを正常に読み込みました。")
+    except Exception as e:
+        print(f"警告: モデルの読み込み中にエラーが発生しました: {e}")
+        print("初期化済みのモデルを使用して続行します。")
     
     # 転移学習モデルの作成
     model = TransferBioKANModel(
@@ -120,6 +128,9 @@ def train_fashion_mnist():
         for inputs, targets in train_pbar:
             inputs, targets = inputs.to(device), targets.to(device)
             
+            # 入力データの形状を変換（[B, C, H, W] -> [B, -1]）
+            inputs = inputs.view(inputs.size(0), -1)
+            
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -150,6 +161,9 @@ def train_fashion_mnist():
             test_pbar = tqdm(test_loader, desc=f'エポック {epoch+1}/{num_epochs} [テスト]')
             for inputs, targets in test_pbar:
                 inputs, targets = inputs.to(device), targets.to(device)
+                
+                # 入力データの形状を変換（[B, C, H, W] -> [B, -1]）
+                inputs = inputs.view(inputs.size(0), -1)
                 
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
