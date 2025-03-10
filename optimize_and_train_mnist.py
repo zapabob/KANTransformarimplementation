@@ -255,17 +255,20 @@ def main():
         )
         
         if args.task_type == 'classification':
-            test_accuracy = test_results['accuracy']
-            test_loss = test_results['loss']
+            test_accuracy = test_results['test_accuracy']
+            test_loss = test_results['test_loss']
             print(f"\nテスト精度: {test_accuracy*100:.2f}%")
             print(f"テスト損失: {test_loss:.4f}")
             
-            # 混同行列の可視化
+            # 混同行列の可視化 - biokan_transfer_learning.pyのevaluate_model関数内で既に可視化されている
+            # test_resultsには実際の予測と正解のリストが含まれていないため、コメントアウト
+            """
             visualize_results(
                 targets=test_results['true_labels'],
                 predictions=test_results['predictions'],
                 task_type=args.task_type
             )
+            """
         else:
             test_mse = test_results['mse']
             test_r2 = test_results['r2']
