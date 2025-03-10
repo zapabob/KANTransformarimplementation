@@ -190,32 +190,32 @@ class TransferBioKANModel(nn.Module):
     
     def forward(self, x, return_features=False):
         """
-        順伝播の実行
+        順伝播処理
         
         Args:
-            x: 入力データ
+            x: 入力テンソル
             return_features: 特徴量を返すかどうか
             
         Returns:
-            予測結果または(予測結果, 特徴量)のタプル
+            モデルの出力、またはreturn_featuresがTrueの場合は(出力, 特徴量)のタプル
         """
+        # デバッグ情報 - 静かモードで無効化
+        verbose = False
+        if verbose:
+            print(f"TransferBioKANModel 入力形状: {x.shape}, タイプ: {type(x)}")
+            
         # 入力形状の確認と修正
         batch_size = x.size(0)
-        
-        # 入力形状のデバッグ情報
-        print(f"TransferBioKANModel 入力形状: {x.shape}, タイプ: {type(x)}")
-        
-        # MNISTの場合、784次元に変換
-        if self.task_type in ['classification', 'regression', 'multivariate_regression']:
-            if x.dim() > 2:
-                # 例: [batch, 1, 28, 28] -> [batch, 784]
-                x = x.view(batch_size, -1)
-                print(f"  形状を変換: {x.shape}")
             
-            # 入力サイズのチェック
-            expected_input_size = 784  # MNISTの場合は28x28=784
-            if x.size(1) != expected_input_size:
-                raise ValueError(f"入力サイズが不正です。期待: {expected_input_size}, 実際: {x.size(1)}")
+        # MNISTデータの場合（B, 1, 28, 28）から（B, 784）に変換
+        if len(x.shape) == 4 and x.shape[1] == 1 and x.shape[2] == 28 and x.shape[3] == 28:
+            x = x.reshape(batch_size, -1)
+            if verbose:
+                print(f"  形状を変換: {x.shape}")
+                
+        # 入力サイズを確認
+        if x.shape[1] != 784 and (len(x.shape) != 3 or x.shape[2] != self.input_size):
+            raise ValueError(f"入力サイズが不正です。expected=784, got={x.shape[1]}")
         
         # タスク固有の処理
         if self.task_type == 'segmentation':
@@ -245,7 +245,7 @@ class TransferBioKANModel(nn.Module):
             
             # エンコーディング
             encoded = self.encoder(features)
-            
+        
             # デコーディング
             reconstructed = self.decoder(encoded)
             
@@ -260,18 +260,12 @@ class TransferBioKANModel(nn.Module):
             # 通常の入力処理（分類、回帰、多変量回帰）
             # 勾配情報の適切な処理
             with torch.set_grad_enabled(not self.freeze_pretrained):
-                if return_features:
-                    # 中間特徴量を取得
-                    _, activations = self.pretrained_model(x, return_activations=True)
-                    # 最終ブロックの活性化を使用
-                    features_raw = activations['block_2']
-                    # 形状調整 [batch, 1, hidden_dim] -> [batch, hidden_dim]
-                    features = features_raw.squeeze(1)
-                else:
-                    # 特徴抽出して分離
-                    _, activations = self.pretrained_model(x, return_activations=True)
-                    features_raw = activations['block_2']
-                    features = features_raw.squeeze(1)
+                # 中間特徴量を取得
+                _, activations = self.pretrained_model(x, return_activations=True)
+                # 最終ブロックの活性化を使用
+                features_raw = activations['block_2']
+                # 形状調整 [batch, 1, hidden_dim] -> [batch, hidden_dim]
+                features = features_raw.squeeze(1)
             
             # 新しいタスク用の出力層
             output = self.output_layer(features)

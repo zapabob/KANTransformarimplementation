@@ -26,6 +26,8 @@ from sklearn.datasets import make_classification, make_regression, make_moons
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
+from datetime import datetime
+import random
 
 # 自作モジュールのインポート
 from biokan_training import EnhancedBioKANModel
@@ -38,14 +40,42 @@ from biokan_transfer_learning import (
     run_inference
 )
 
-# デバイスの設定
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用デバイス: {device}")
+# グローバル変数でCUDA情報の表示を制御
+CUDA_INFO_DISPLAYED = False
 
+# ===============================================
 # CUDA情報の表示
-if torch.cuda.is_available():
-    print(f"CUDA バージョン: {torch.version.cuda}")
+# ===============================================
+def print_cuda_info(verbose=True):
+    """CUDAの情報を表示（既に表示されていない場合のみ）"""
+    global CUDA_INFO_DISPLAYED
+    
+    if CUDA_INFO_DISPLAYED:
+        # すでに表示済みならスキップ
+        return
+        
+    if not verbose:
+        # 静かモード
+        if torch.cuda.is_available():
+            CUDA_INFO_DISPLAYED = True
+            print(f"GPU使用中: {torch.cuda.get_device_name(0)}")
+        return
+        
+    # デバイスの設定
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"使用デバイス: {device}")
+    
+    if not torch.cuda.is_available():
+        print("警告: GPUが検出されませんでした。CPUで実行されます（処理速度が大幅に低下します）")
+        return
+        
+    # ここまで来ると表示済みになる
+    CUDA_INFO_DISPLAYED = True
+    
     cuda_version = torch.version.cuda
+    print(f"CUDA バージョン: {cuda_version}")
+    
+    # CUDA 12の互換性チェック
     if cuda_version.startswith('12.'):
         print("CUDA 12が検出されました。最適化された訓練を行います。")
         # CUDA 12特有の最適化設定
@@ -60,6 +90,9 @@ if torch.cuda.is_available():
         print(f"GPU キャッシュ: {torch.cuda.memory_reserved(current_device) / 1024**3:.2f} GB")
     else:
         print(f"注意: CUDA {cuda_version}が検出されました。CUDA 12向けの最適化は利用できません。")
+
+# デバイス情報の初期表示
+print_cuda_info()
 
 # ===============================================
 # 高度な推論用データセット
@@ -346,18 +379,24 @@ def get_advanced_dataset(task_type, batch_size=32):
 
 def optimize_hyperparameters(pretrained_model, task_type, train_loader, val_loader, n_trials=30):
     """
-    Optunaを使用してハイパーパラメータを最適化する
+    Optunaを使用してハイパーパラメータを最適化する関数
     
     Args:
         pretrained_model: 事前学習済みモデル
-        task_type: タスクの種類
+        task_type: タスクの種類 ('classification', 'regression', 'multivariate_regression', 'sequence', 'segmentation', 'anomaly_detection')
         train_loader: 訓練データローダー
         val_loader: 検証データローダー
         n_trials: 試行回数
         
     Returns:
-        最適なハイパーパラメータと最良のモデル
+        最適なハイパーパラメータ辞書
     """
+    # デバイスの設定
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # CUDA情報を静かモードで表示（冗長な出力を避けるため）
+    print_cuda_info(verbose=False)
+    
     def objective(trial):
         # ハイパーパラメータの候補を定義
         lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
@@ -571,8 +610,13 @@ def main():
                        help='モデル保存ディレクトリ')
     parser.add_argument('--verbose', action='store_true',
                        help='詳細な出力を表示')
+    parser.add_argument('--quiet', action='store_true',
+                       help='静かモード（進捗表示の少ない出力）')
     
     args = parser.parse_args()
+    
+    # CUDA情報の表示（静かモードの設定に合わせる）
+    print_cuda_info(verbose=not args.quiet)
     
     # 出力ディレクトリの作成
     os.makedirs(args.save_dir, exist_ok=True)

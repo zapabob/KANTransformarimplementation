@@ -12,6 +12,7 @@ import os
 import argparse
 from tqdm.auto import tqdm
 import time
+import numpy as np
 
 # 自作モジュールのインポート
 from biokan_training import EnhancedBioKANModel
@@ -24,12 +25,17 @@ from biokan_transfer_learning import (
     visualize_results
 )
 
+# CUDA情報表示を制御するフラグ
+# 注意: このスクリプトがモジュールとしてインポートされた場合でも使える
+CUDA_INFO_DISPLAYED = False
+
 # デバイスの設定
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"使用デバイス: {device}")
 
-# CUDA情報の表示（接続時）
-if torch.cuda.is_available():
+# CUDA情報の表示（まだ表示されていない場合のみ）
+if torch.cuda.is_available() and not CUDA_INFO_DISPLAYED:
+    CUDA_INFO_DISPLAYED = True  # 表示フラグを設定
     cuda_version = torch.version.cuda
     print(f"CUDA バージョン: {cuda_version}")
     
@@ -284,7 +290,12 @@ def main():
         results_summary = {
             'hyperparameters': best_params,
             'training_time': training_time,
-            'test_results': test_results,
+            'test_results': {
+                # NumPy配列をPythonの標準型に変換
+                k: float(v) if isinstance(v, (np.float32, np.float64)) else
+                   v.tolist() if isinstance(v, np.ndarray) else v
+                for k, v in test_results.items()
+            },
             'training_history': {k: [float(x) for x in v] for k, v in history.items()}
         }
         

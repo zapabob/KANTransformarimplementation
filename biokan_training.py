@@ -104,7 +104,22 @@ class BiologicalAttention(nn.Module):
         self.baseline = nn.Parameter(torch.ones(1, num_heads, 1) * 0.1)
     
     def forward(self, x, neuromodulation=None):
-        print(f"BiologicalAttention input shape: {x.shape}, type: {type(x)}")  # デバッグ出力
+        """
+        順伝播処理
+        
+        Args:
+            x: 入力テンソル
+            neuromodulation: 神経調節係数の辞書（オプション）
+            
+        Returns:
+            注意機構を適用したテンソル
+        """
+        # デバッグ情報 - 静かモードで無効化
+        verbose = False
+        if verbose:
+            print(f"BiologicalAttention input shape: {x.shape}, type: {type(x)}")
+            
+        batch_size, seq_len, hidden_dim = x.shape
         
         # 入力データの形状を確認
         if x.dim() == 2:
@@ -392,11 +407,27 @@ class EnhancedBioKANModel(nn.Module):
             'rewards': []
         }
     
-    def forward(self, x, return_activations=False):
-        print(f"EnhancedBioKANModel input shape: {x.shape}, type: {type(x)}")  # デバッグ出力
+    def forward(self, x, neuromodulators=None, **kwargs):
+        """
+        順伝播処理
         
-        # 入力データの形状を確認
-        if x.dim() > 2:
+        Args:
+            x: 入力テンソル
+            neuromodulators: 神経調節係数の辞書（オプション）
+            **kwargs: その他のパラメータ
+            
+        Returns:
+            モデルの出力
+        """
+        # デバッグ情報 - 静かモードで無効化
+        verbose = False
+        if verbose:
+            print(f"EnhancedBioKANModel input shape: {x.shape}, type: {type(x)}")
+            
+        # 入力の形状を確認
+        is_3d = False
+        if x.dim() == 3:
+            is_3d = True
             batch_size = x.size(0)
             x = x.view(batch_size, -1)
         
@@ -405,7 +436,7 @@ class EnhancedBioKANModel(nn.Module):
         x = x.unsqueeze(1)  # [batch_size, 1, hidden_dim]
         
         # 層の活性化を追跡（必要な場合）
-        activations = {'input': x.detach()} if return_activations else None
+        activations = {'input': x.detach()} if kwargs.get('return_activations', False) else None
         
         # 現在の神経伝達物質レベル
         nt_levels = self.neuromodulator_system.get_levels()
@@ -429,14 +460,14 @@ class EnhancedBioKANModel(nn.Module):
                     attended_x * attention_factor * inhibition_factor)
             
             # 活性化の追跡（要求時）
-            if return_activations:
+            if kwargs.get('return_activations', False):
                 activations[f'block_{i}'] = x.detach()
         
         # 出力投影のための形状変更
         x = x.squeeze(1)  # [batch_size, hidden_dim]
         output = self.output_proj(x)
         
-        if return_activations:
+        if kwargs.get('return_activations', False):
             activations['output'] = output.detach()
             return output, activations
         
